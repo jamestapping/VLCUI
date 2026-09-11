@@ -83,9 +83,32 @@ public class UIVLCVideoPlayerView: _PlatformView {
         ])
     }
 
+    deinit {
+        // Releasing the last strong reference to a VLCMediaPlayer synchronously
+        // triggers -[VLCMediaPlayer dealloc] -> libvlc_media_player_destroy(),
+        // which does a pthread_join waiting for libvlc's internal thread to exit.
+        // If that thread is stuck on a stalled network read (e.g. the connection
+        // went dead mid-stream), the join can block for a very long time. Since
+        // this view's deinit normally runs synchronously on the main thread (as
+        // part of SwiftUI/UIKit tearing the view down), that would freeze the
+        // whole app. Handing the reference to a detached task defers the actual
+        // release to a background thread instead.
+        let playerToRelease = currentMediaPlayer
+        Task.detached(priority: .userInitiated) {
+            playerToRelease?.stop()
+        }
+    }
+
     func setupVLCMediaPlayer(with newConfiguration: VLCVideoPlayer.Configuration) {
-        currentMediaPlayer?.stop()
-        currentMediaPlayer = nil
+        // Same reasoning as deinit above: don't let releasing the previous
+        // player block this (main-thread) call if its network connection is
+        // stalled — hand it off to release in the background instead.
+        if let oldMediaPlayer = currentMediaPlayer {
+            currentMediaPlayer = nil
+            Task.detached(priority: .userInitiated) {
+                oldMediaPlayer.stop()
+            }
+        }
 
         let media = VLCMedia(url: newConfiguration.url)
         media.addOptions(newConfiguration.options)
