@@ -100,7 +100,7 @@ extension VLCMediaPlayer {
             deselectAllTextTracks()
             return
         }
-        selectTrackAtIndex(index, type: .text)
+        selectTrack(at: index, type: .text)
     }
 
     /// Replaces the old `currentAudioTrackIndex = ...` setter — see
@@ -110,7 +110,7 @@ extension VLCMediaPlayer {
             deselectAllAudioTracks()
             return
         }
-        selectTrackAtIndex(index, type: .audio)
+        selectTrack(at: index, type: .audio)
     }
 
     /// Replaces reading `currentVideoSubTitleIndex`/`currentAudioTrackIndex`
