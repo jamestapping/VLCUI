@@ -11,17 +11,32 @@ import VLCKit
 #if !os(macOS)
 // VLCKit 4.0's native Picture in Picture (landed in 4.0.0a8, see VLCDrawable.h)
 // calls back onto whatever object is assigned as the media player's
-// `.drawable` — the same object that's always been responsible for
-// `addSubview:`/`bounds` (VLCDrawable). Rather than route PiP through
-// `UIVLCVideoPlayerView` itself, this stays on `videoContentView` (now this
-// dedicated subclass instead of a plain `_PlatformView`): that's already the
-// exact view VLCKit draws its real rendering content into today, with the
-// aspect-fill transform logic in this file already keyed to it specifically.
-// Keeping `.drawable` pointed at the same object PiP is also implemented on
-// means zero behavior change to existing rendering for players that never
-// touch PiP.
-private final class VLCDrawableContentView: _PlatformView, VLCDrawable, VLCPictureInPictureDrawable, VLCPictureInPictureMediaControlling {
+// `.drawable`. That can't be `videoContentView` itself (a UIView): the
+// protocol's `bounds()` requirement is a plain Objective-C method, which
+// collides outright with UIView's own inherited `bounds` *property* getter
+// — same selector, so Swift refuses to let a UIView subclass declare one
+// ("method 'bounds()' ... conflicts with getter for 'bounds' from
+// superclass 'UIView'"), while *not* declaring one leaves the protocol
+// unsatisfied ("does not conform"). A plain NSObject adapter has no such
+// inherited property to collide with, and just forwards both
+// `addSubview:`/`bounds()` to the real view (`videoContentView`, still the
+// exact view VLCKit draws its rendering content into and that the existing
+// aspect-fill logic is keyed to — unchanged) and the playback-control calls
+// to `owner`'s `currentMediaPlayer`.
+private final class VLCDrawableAdapter: NSObject, VLCDrawable, VLCPictureInPictureDrawable, VLCPictureInPictureMediaControlling {
     weak var owner: UIVLCVideoPlayerView?
+    weak var contentView: _PlatformView?
+
+    // `VLCView` in the header is a C macro (`#define VLCView UIView`/`NSView`)
+    // invisible to Swift — the generated interface sees the expanded type,
+    // `_PlatformView` here.
+    func addSubview(_ view: _PlatformView) {
+        contentView?.addSubview(view)
+    }
+
+    func bounds() -> CGRect {
+        contentView?.bounds ?? .zero
+    }
 
     func mediaController() -> VLCPictureInPictureMediaControlling {
         self
@@ -33,13 +48,6 @@ private final class VLCDrawableContentView: _PlatformView, VLCDrawable, VLCPictu
             self?.owner?.handlePictureInPictureReady(controller)
         }
     }
-
-    // VLCDrawable's `bounds()` requirement maps onto the exact same
-    // Objective-C selector (`bounds`) as UIView's own inherited `bounds`
-    // property getter — no explicit implementation needed (and, tried
-    // once, one actively conflicts: "method 'bounds()' ... conflicts with
-    // getter for 'bounds' from superclass 'UIView'"). The inherited
-    // property satisfies this protocol requirement on its own.
 
     func play() {
         owner?.currentMediaPlayer?.play()
@@ -79,6 +87,14 @@ private final class VLCDrawableContentView: _PlatformView, VLCDrawable, VLCPictu
 public class UIVLCVideoPlayerView: _PlatformView {
 
     private lazy var videoContentView = makeVideoContentView()
+    #if !os(macOS)
+    private lazy var drawableAdapter: VLCDrawableAdapter = {
+        let adapter = VLCDrawableAdapter()
+        adapter.owner = self
+        adapter.contentView = videoContentView
+        return adapter
+    }()
+    #endif
 
     private var configuration: VLCVideoPlayer.Configuration
     private var proxy: VLCVideoPlayer.Proxy?
@@ -185,7 +201,11 @@ public class UIVLCVideoPlayerView: _PlatformView {
 
         let newMediaPlayer = VLCMediaPlayer()
         newMediaPlayer.media = media
+        #if os(macOS)
         newMediaPlayer.drawable = videoContentView
+        #else
+        newMediaPlayer.drawable = drawableAdapter
+        #endif
         newMediaPlayer.delegate = self
 
         if let loggingInfo {
@@ -223,18 +243,15 @@ public class UIVLCVideoPlayerView: _PlatformView {
     }
 
     private func makeVideoContentView() -> _PlatformView {
-        #if os(macOS)
         let view = _PlatformView(frame: .zero)
         view.translatesAutoresizingMaskIntoConstraints = false
+
+        #if os(macOS)
         view.layer?.backgroundColor = .black
-        return view
         #else
-        let view = VLCDrawableContentView(frame: .zero)
-        view.owner = self
-        view.translatesAutoresizingMaskIntoConstraints = false
         view.backgroundColor = .black
-        return view
         #endif
+        return view
     }
 
     #if !os(macOS)
