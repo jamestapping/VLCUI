@@ -67,7 +67,7 @@ public extension VLCVideoPlayer {
             if remainingTime < seconds.asInt32 * 1000 {
                 mediaPlayer?.time = mediaPlayer?.media?.length ?? VLCTime(int: 0)
             } else {
-                mediaPlayer?.jumpForward(seconds.asInt32)
+                mediaPlayer?.jumpForward(Double(seconds))
             }
         }
 
@@ -81,7 +81,7 @@ public extension VLCVideoPlayer {
             if seconds.asInt32 > currentTime {
                 mediaPlayer?.time = VLCTime(int: 0)
             } else {
-                mediaPlayer?.jumpBackward(seconds.asInt32)
+                mediaPlayer?.jumpBackward(Double(seconds))
             }
         }
 
@@ -95,7 +95,7 @@ public extension VLCVideoPlayer {
             if remainingTime < seconds {
                 mediaPlayer?.time = mediaPlayer?.media?.length ?? VLCTime(int: 0)
             } else {
-                mediaPlayer?.jumpForward(Int32(seconds.components.seconds))
+                mediaPlayer?.jumpForward(Double(seconds.components.seconds))
             }
         }
 
@@ -107,7 +107,7 @@ public extension VLCVideoPlayer {
             if seconds > currentTime {
                 mediaPlayer?.time = VLCTime(int: 0)
             } else {
-                mediaPlayer?.jumpBackward(Int32(seconds.components.seconds))
+                mediaPlayer?.jumpBackward(Double(seconds.components.seconds))
             }
         }
 
@@ -124,7 +124,7 @@ public extension VLCVideoPlayer {
         public func setSubtitleTrack(_ index: ValueSelector<Int>) {
             guard let mediaPlayer else { return }
             let newTrackIndex = mediaPlayer.subtitleTrackIndex(from: index)
-            mediaPlayer.currentVideoSubTitleIndex = newTrackIndex.asInt32
+            mediaPlayer.selectSubtitleTrackIndex(newTrackIndex)
         }
 
         /// Set the audio track index.
@@ -133,7 +133,7 @@ public extension VLCVideoPlayer {
         public func setAudioTrack(_ index: ValueSelector<Int>) {
             guard let mediaPlayer else { return }
             let newTrackIndex = mediaPlayer.audioTrackIndex(from: index)
-            mediaPlayer.currentAudioTrackIndex = newTrackIndex.asInt32
+            mediaPlayer.selectAudioTrackIndex(newTrackIndex)
         }
 
         /// Set the subtitle delay
@@ -329,9 +329,10 @@ public extension VLCVideoPlayer {
                 return
             }
 
-            ratio.rawValue.withCString { cString in
-                mediaPlayer?.videoAspectRatio = UnsafeMutablePointer(mutating: cString)
-            }
+            // VLCKit 4.0 changed `videoAspectRatio` from a raw C string
+            // pointer to a plain Swift String — no more manual
+            // withCString/UnsafeMutablePointer bridging needed.
+            mediaPlayer?.videoAspectRatio = ratio.rawValue
         }
     }
 }

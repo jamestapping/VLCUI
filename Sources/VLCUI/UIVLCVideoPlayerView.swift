@@ -281,27 +281,23 @@ extension UIVLCVideoPlayerView {
 
     private func constructPlaybackInformation(player: VLCMediaPlayer, media: VLCMedia) -> VLCVideoPlayer.PlaybackInformation {
 
-        let subtitleIndexes = player.videoSubTitlesIndexes as! [Int]
-        let subtitleNames = player.videoSubTitlesNames as! [String]
-
-        let audioIndexes = player.audioTrackIndexes as! [Int]
-        let audioNames = player.audioTrackNames as! [String]
-
-        let videoIndexes = player.videoTrackIndexes as! [Int]
-        let videoNames = player.videoTrackNames as? [String]
-
-        let subtitleTracks = zip(subtitleIndexes, subtitleNames).map { MediaTrack(index: $0, title: $1) }
-        let audioTracks = zip(audioIndexes, audioNames).map { MediaTrack(index: $0, title: $1) }
-        let videoTracks = zip(videoIndexes, videoNames ?? []).map { MediaTrack(index: $0, title: $1) }
+        // VLCKit 4.0's textTracks/audioTracks/videoTracks (VLCMediaPlayerTrack
+        // objects) replace the old parallel videoSubTitlesIndexes/Names etc.
+        // arrays — see VLCMediaPlayerExtensions.swift's comment on
+        // subtitleTrackIndex(from:) for the full picture. MediaTrack.index
+        // stays a position in these arrays, same convention as before.
+        let subtitleTracks = player.textTracks.enumerated().map { MediaTrack(index: $0.offset, title: $0.element.trackName) }
+        let audioTracks = player.audioTracks.enumerated().map { MediaTrack(index: $0.offset, title: $0.element.trackName) }
+        let videoTracks = player.videoTracks.enumerated().map { MediaTrack(index: $0.offset, title: $0.element.trackName) }
 
         let currentSubtitleTrack: MediaTrack = subtitleTracks
-            .first(where: { $0.index == player.currentVideoSubTitleIndex.asInt })
+            .first(where: { $0.index == player.currentSubtitleTrackIndex })
             .chaining(.init(index: -1, title: "Disable"))
         let currentAudioTrack: MediaTrack = audioTracks
-            .first(where: { $0.index == player.currentAudioTrackIndex.asInt })
+            .first(where: { $0.index == player.currentAudioTrackIndex })
             .chaining(.init(index: -1, title: "Disable"))
         let currentVideoTrack: MediaTrack = videoTracks
-            .first(where: { $0.index == player.currentVideoTrackIndex.asInt })
+            .first(where: { $0.index == player.currentVideoTrackIndex })
             .chaining(.init(index: -1, title: "Disable"))
 
         return VLCVideoPlayer.PlaybackInformation(
@@ -370,7 +366,7 @@ extension UIVLCVideoPlayerView: VLCMediaPlayerDelegate {
         let player = aNotification.object as! VLCMediaPlayer
         guard player.state != .playing, player.state != lastPlayerState else { return }
 
-        let wrappedState = VLCVideoPlayer.State(rawValue: player.state.rawValue) ?? .error
+        let wrappedState = VLCVideoPlayer.State(player.state)
         let playbackInformation = constructPlaybackInformation(player: player, media: player.media!)
 
         onStateUpdated(wrappedState, playbackInformation)
@@ -397,10 +393,10 @@ extension UIVLCVideoPlayerView: VLCMediaPlayerDelegate {
         }
 
         let defaultSubtitleTrackIndex = player.subtitleTrackIndex(from: configuration.subtitleIndex)
-        player.currentVideoSubTitleIndex = defaultSubtitleTrackIndex.asInt32
+        player.selectSubtitleTrackIndex(defaultSubtitleTrackIndex)
 
         let defaultAudioTrackIndex = player.audioTrackIndex(from: configuration.audioIndex)
-        player.currentAudioTrackIndex = defaultAudioTrackIndex.asInt32
+        player.selectAudioTrackIndex(defaultAudioTrackIndex)
 
         player.setSubtitleSize(configuration.subtitleSize)
         player.setSubtitleFont(configuration.subtitleFont)

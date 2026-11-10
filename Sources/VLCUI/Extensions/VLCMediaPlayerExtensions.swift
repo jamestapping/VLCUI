@@ -62,26 +62,70 @@ extension VLCMediaPlayer {
         #endif
     }
 
+    // VLCKit 4.0 replaced the old `videoSubTitlesIndexes`/`audioTrackIndexes`
+    // (raw libvlc index arrays, with a literal -1 entry meaning "disabled")
+    // and `currentVideoSubTitleIndex`/`currentAudioTrackIndex` setters with
+    // `textTracks`/`audioTracks` (arrays of VLCMediaPlayerTrack) plus
+    // `-selectTrackAtIndex:type:`/`-deselectAllTextTracks`/
+    // `-deselectAllAudioTracks`. VLCUI's own public API (MediaTrack.index,
+    // ValueSelector<Int>) still models a track purely as a position in that
+    // array — -1 keeps meaning "disabled", now by position lookup against
+    // the real array rather than a sentinel value embedded inside it.
     func subtitleTrackIndex(from track: VLCVideoPlayer.ValueSelector<Int>) -> Int {
-        guard let indexes = videoSubTitlesIndexes as? [Int] else { return -1 }
-
+        let count = textTracks.count
         switch track {
         case .auto:
-            return indexes.first(where: { $0 != -1 }) ?? -1
+            return count > 0 ? 0 : -1
         case let .absolute(index):
-            return indexes.contains(index) ? index : -1
+            return (0 ..< count).contains(index) ? index : -1
         }
     }
 
     func audioTrackIndex(from track: VLCVideoPlayer.ValueSelector<Int>) -> Int {
-        guard let indexes = audioTrackIndexes as? [Int] else { return -1 }
-
+        let count = audioTracks.count
         switch track {
         case .auto:
-            return indexes.first(where: { $0 != -1 }) ?? -1
+            return count > 0 ? 0 : -1
         case let .absolute(index):
-            return indexes.contains(index) ? index : -1
+            return (0 ..< count).contains(index) ? index : -1
         }
+    }
+
+    /// Replaces the old `currentVideoSubTitleIndex = ...` setter. `index`
+    /// is a position in `textTracks` as returned by `subtitleTrackIndex(from:)`
+    /// above — -1 (or any out-of-range value) means "no subtitles",
+    /// matching the old sentinel's meaning.
+    func selectSubtitleTrackIndex(_ index: Int) {
+        guard (0 ..< textTracks.count).contains(index) else {
+            deselectAllTextTracks()
+            return
+        }
+        selectTrackAtIndex(index, type: .text)
+    }
+
+    /// Replaces the old `currentAudioTrackIndex = ...` setter — see
+    /// `selectSubtitleTrackIndex` above, same reasoning for audio.
+    func selectAudioTrackIndex(_ index: Int) {
+        guard (0 ..< audioTracks.count).contains(index) else {
+            deselectAllAudioTracks()
+            return
+        }
+        selectTrackAtIndex(index, type: .audio)
+    }
+
+    /// Replaces reading `currentVideoSubTitleIndex`/`currentAudioTrackIndex`
+    /// directly — the position of whichever track in `textTracks`/
+    /// `audioTracks` currently has `isSelected == true`, or -1 if none does.
+    var currentSubtitleTrackIndex: Int {
+        textTracks.firstIndex(where: \.isSelected) ?? -1
+    }
+
+    var currentAudioTrackIndex: Int {
+        audioTracks.firstIndex(where: \.isSelected) ?? -1
+    }
+
+    var currentVideoTrackIndex: Int {
+        videoTracks.firstIndex(where: \.isSelected) ?? -1
     }
 
     func rate(from rate: VLCVideoPlayer.ValueSelector<Float>) -> Float {
