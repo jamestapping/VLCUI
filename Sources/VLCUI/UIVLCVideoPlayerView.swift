@@ -27,10 +27,19 @@ private final class VLCDrawableContentView: _PlatformView, VLCDrawable, VLCPictu
         self
     }
 
-    func pictureInPictureReady() -> (VLCPictureInPictureWindowControlling) -> Void {
+    func pictureInPictureReady() -> ((VLCPictureInPictureWindowControlling?) -> Void)? {
         { [weak self] controller in
+            guard let controller else { return }
             self?.owner?.handlePictureInPictureReady(controller)
         }
+    }
+
+    // VLCDrawable's `bounds()` is a plain Objective-C method (declared
+    // `- (CGRect)bounds;`, not `@property`), which Swift imports as a
+    // method requirement distinct from UIView's own `bounds` property —
+    // inheriting the property alone does not satisfy it.
+    func bounds() -> CGRect {
+        self.bounds
     }
 
     func play() {
@@ -41,7 +50,7 @@ private final class VLCDrawableContentView: _PlatformView, VLCDrawable, VLCPictu
         owner?.currentMediaPlayer?.pause()
     }
 
-    func seekBy(_ offset: Int64, completion: @escaping () -> Void) {
+    func seek(by offset: Int64, completion: @escaping () -> Void) {
         guard let player = owner?.currentMediaPlayer else {
             completion()
             return
@@ -181,9 +190,13 @@ public class UIVLCVideoPlayerView: _PlatformView {
         newMediaPlayer.delegate = self
 
         if let loggingInfo {
-            newMediaPlayer.libraryInstance.debugLogging = true
-            newMediaPlayer.libraryInstance.debugLoggingLevel = loggingInfo.level.rawValue.asInt32
-            newMediaPlayer.libraryInstance.debugLoggingTarget = self
+            // VLCKit 4.0 replaced the old debugLogging/debugLoggingLevel/
+            // debugLoggingTarget trio (and the VLCLibraryLogReceiverProtocol
+            // delegate it called back on) with a `loggers` array of
+            // VLCLogging-conforming objects — VLCLogBridge below is that
+            // object, forwarding to the exact same `loggingInfo.logger`
+            // callback this always used.
+            newMediaPlayer.libraryInstance.loggers = [VLCLogBridge(loggingInfo: loggingInfo)]
         }
 
         for child in newConfiguration.playbackChildren {
@@ -379,13 +392,37 @@ extension UIVLCVideoPlayerView: VLCMediaPlayerDelegate {
     }
 }
 
-// MARK: VLCLibraryLogReceiverProtocol
+// MARK: VLCLogBridge
 
-extension UIVLCVideoPlayerView: VLCLibraryLogReceiverProtocol {
+/// Adapts `VLCVideoPlayer.LoggingLevel`/`VLCVideoPlayerLogger` (VLCUI's own,
+/// pre-4.0 logging API, kept unchanged here since this app never actually
+/// uses it — grepped: no `.logging(...)` call site anywhere) onto VLCKit
+/// 4.0's `VLCLogging` protocol, assigned via `VLCLibrary.loggers` instead of
+/// the removed debugLogging/debugLoggingTarget delegate pair.
+private final class VLCLogBridge: NSObject, VLCLogging {
+    private let loggingInfo: (logger: VLCVideoPlayerLogger, level: VLCVideoPlayer.LoggingLevel)
 
-    public func handleMessage(_ message: String, debugLevel level: Int32) {
-        guard let loggingInfo, level >= loggingInfo.level.rawValue else { return }
-        let level = VLCVideoPlayer.LoggingLevel(rawValue: level.asInt) ?? .info
-        loggingInfo.logger.vlcVideoPlayer(didLog: message, at: level)
+    init(loggingInfo: (logger: VLCVideoPlayerLogger, level: VLCVideoPlayer.LoggingLevel)) {
+        self.loggingInfo = loggingInfo
+    }
+
+    var level: VLCLogLevel {
+        get { loggingInfo.level.asVLCLogLevel }
+        set { /* driven by loggingInfo.level only — VLCKit never needs to change this itself */ }
+    }
+
+    func handleMessage(_ message: String, logLevel level: VLCLogLevel, context: VLCLogContext?) {
+        loggingInfo.logger.vlcVideoPlayer(didLog: message, at: loggingInfo.level)
+    }
+}
+
+private extension VLCVideoPlayer.LoggingLevel {
+    var asVLCLogLevel: VLCLogLevel {
+        switch self {
+        case .error: return .error
+        case .warning: return .warning
+        case .info: return .info
+        case .debug: return .debug
+        }
     }
 }
