@@ -6,12 +6,66 @@ import AppKit
 import UIKit
 #endif
 
-#if os(macOS)
 import VLCKit
-#elseif os(tvOS)
-import TVVLCKit
-#else
-import MobileVLCKit
+
+#if !os(macOS)
+// VLCKit 4.0's native Picture in Picture (landed in 4.0.0a8, see VLCDrawable.h)
+// calls back onto whatever object is assigned as the media player's
+// `.drawable` — the same object that's always been responsible for
+// `addSubview:`/`bounds` (VLCDrawable). Rather than route PiP through
+// `UIVLCVideoPlayerView` itself, this stays on `videoContentView` (now this
+// dedicated subclass instead of a plain `_PlatformView`): that's already the
+// exact view VLCKit draws its real rendering content into today, with the
+// aspect-fill transform logic in this file already keyed to it specifically.
+// Keeping `.drawable` pointed at the same object PiP is also implemented on
+// means zero behavior change to existing rendering for players that never
+// touch PiP.
+private final class VLCDrawableContentView: _PlatformView, VLCDrawable, VLCPictureInPictureDrawable, VLCPictureInPictureMediaControlling {
+    weak var owner: UIVLCVideoPlayerView?
+
+    func mediaController() -> VLCPictureInPictureMediaControlling {
+        self
+    }
+
+    func pictureInPictureReady() -> (VLCPictureInPictureWindowControlling) -> Void {
+        { [weak self] controller in
+            self?.owner?.handlePictureInPictureReady(controller)
+        }
+    }
+
+    func play() {
+        owner?.currentMediaPlayer?.play()
+    }
+
+    func pause() {
+        owner?.currentMediaPlayer?.pause()
+    }
+
+    func seekBy(_ offset: Int64, completion: @escaping () -> Void) {
+        guard let player = owner?.currentMediaPlayer else {
+            completion()
+            return
+        }
+        player.time = VLCTime(int: player.time.intValue + Int32(offset))
+        completion()
+    }
+
+    func mediaLength() -> Int64 {
+        Int64(owner?.currentMediaPlayer?.media?.length.intValue ?? 0)
+    }
+
+    func mediaTime() -> Int64 {
+        Int64(owner?.currentMediaPlayer?.time.intValue ?? 0)
+    }
+
+    func isMediaSeekable() -> Bool {
+        owner?.currentMediaPlayer?.isSeekable ?? false
+    }
+
+    func isMediaPlaying() -> Bool {
+        owner?.currentMediaPlayer?.isPlaying ?? false
+    }
+}
 #endif
 
 public class UIVLCVideoPlayerView: _PlatformView {
@@ -110,6 +164,14 @@ public class UIVLCVideoPlayerView: _PlatformView {
             }
         }
 
+        // The controller VLCKit handed back via `pictureInPictureReady` is
+        // tied to the old `VLCMediaPlayer`/drawable pairing above — it does
+        // not carry over. `pictureInPictureReady` fires again, with a fresh
+        // controller, once the new player is ready for it.
+        #if !os(macOS)
+        proxy?.pictureInPictureController = nil
+        #endif
+
         let media = VLCMedia(url: newConfiguration.url)
         media.addOptions(newConfiguration.options)
 
@@ -149,16 +211,31 @@ public class UIVLCVideoPlayerView: _PlatformView {
     }
 
     private func makeVideoContentView() -> _PlatformView {
+        #if os(macOS)
         let view = _PlatformView(frame: .zero)
         view.translatesAutoresizingMaskIntoConstraints = false
-
-        #if os(macOS)
         view.layer?.backgroundColor = .black
-        #else
-        view.backgroundColor = .black
-        #endif
         return view
+        #else
+        let view = VLCDrawableContentView(frame: .zero)
+        view.owner = self
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.backgroundColor = .black
+        return view
+        #endif
     }
+
+    #if !os(macOS)
+    /// Called (by VLCKit, via `VLCDrawableContentView.pictureInPictureReady()`)
+    /// exactly once PiP is actually usable for the current media player —
+    /// not at `init`, since VLCKit needs to have set up its own PiP-capable
+    /// rendering path first. Surfaced through `Proxy` rather than kept
+    /// private here, since starting/stopping PiP is something the app's own
+    /// UI (a PiP button, or a background-transition hook) needs to trigger.
+    fileprivate func handlePictureInPictureReady(_ controller: VLCPictureInPictureWindowControlling) {
+        proxy?.pictureInPictureController = controller
+    }
+    #endif
 
     #if !os(macOS)
     override public func layoutSubviews() {
@@ -245,6 +322,10 @@ extension UIVLCVideoPlayerView: VLCMediaPlayerDelegate {
             lastPlayerTicks = currentTicks
         }
 
+        #if !os(macOS)
+        proxy?.invalidatePictureInPicturePlaybackState()
+        #endif
+
         // Replay
         if configuration.replay,
            lastPlayerState == .playing,
@@ -265,6 +346,10 @@ extension UIVLCVideoPlayerView: VLCMediaPlayerDelegate {
 
         onStateUpdated(wrappedState, playbackInformation)
         lastPlayerState = player.state
+
+        #if !os(macOS)
+        proxy?.invalidatePictureInPicturePlaybackState()
+        #endif
     }
 
     private func setConfigurationValues(with player: VLCMediaPlayer, from configuration: VLCVideoPlayer.Configuration) {

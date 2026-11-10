@@ -1,10 +1,4 @@
-#if os(macOS)
 import VLCKit
-#elseif os(tvOS)
-import TVVLCKit
-#else
-import MobileVLCKit
-#endif
 
 extension VLCVideoPlayer {
 

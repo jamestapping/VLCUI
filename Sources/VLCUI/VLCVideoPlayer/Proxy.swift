@@ -6,13 +6,7 @@ import AppKit
 import UIKit
 #endif
 
-#if os(macOS)
 import VLCKit
-#elseif os(tvOS)
-import TVVLCKit
-#else
-import MobileVLCKit
-#endif
 
 public extension VLCVideoPlayer {
 
@@ -20,6 +14,23 @@ public extension VLCVideoPlayer {
 
         weak var mediaPlayer: VLCMediaPlayer?
         weak var videoPlayerView: UIVLCVideoPlayerView?
+
+        #if !os(macOS)
+        /// Set once (by `UIVLCVideoPlayerView.handlePictureInPictureReady`)
+        /// after VLCKit itself decides PiP is actually usable for the
+        /// current media — never assume it's non-nil, and never cache this
+        /// across a `playNewMedia` call, since a new `VLCMediaPlayer` means
+        /// VLCKit hands back a new controller (or none yet) once ready
+        /// again.
+        var pictureInPictureController: VLCPictureInPictureWindowControlling? {
+            didSet { isPictureInPictureAvailable = pictureInPictureController != nil }
+        }
+
+        /// Whether `startPictureInPicture()` can be called right now.
+        /// Driven entirely by VLCKit's own readiness callback — there is no
+        /// separate app-side capability check to perform first.
+        @Published public private(set) var isPictureInPictureAvailable: Bool = false
+        #endif
 
         @MainActor
         private var thumbnailHandlers = Set<ThumbnailHandler>()
@@ -213,6 +224,26 @@ public extension VLCVideoPlayer {
         /// Set the subtitle font color using the RGB values of the given `UIColor`.
         public func setSubtitleColor(_ color: ValueSelector<_PlatformColor>) {
             mediaPlayer?.setSubtitleColor(color)
+        }
+
+        /// Starts system Picture in Picture for the current media, if
+        /// `isPictureInPictureAvailable` is true. A no-op otherwise — there's
+        /// nothing to start before VLCKit has reported it's ready.
+        public func startPictureInPicture() {
+            pictureInPictureController?.startPictureInPicture()
+        }
+
+        /// Stops system Picture in Picture if it's currently active.
+        public func stopPictureInPicture() {
+            pictureInPictureController?.stopPictureInPicture()
+        }
+
+        /// Must be called whenever playback state or media info changes
+        /// while PiP might be showing, so its overlay (play/pause, scrubber)
+        /// stays in sync. `UIVLCVideoPlayerView`'s existing tick/state
+        /// callbacks are the natural place to drive this from.
+        public func invalidatePictureInPicturePlaybackState() {
+            pictureInPictureController?.invalidatePlaybackState()
         }
         #endif
 
