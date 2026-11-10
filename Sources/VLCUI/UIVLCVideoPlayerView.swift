@@ -331,6 +331,19 @@ extension UIVLCVideoPlayerView {
 extension UIVLCVideoPlayerView: VLCMediaPlayerDelegate {
 
     public func mediaPlayerTimeChanged(_ aNotification: Notification) {
+        // VLCKit 4.0's stopTimeChangeUpdateTimer() force-fires the pending
+        // timer synchronously on whatever thread calls it (its own
+        // background input thread included), instead of only ever firing
+        // via the main run loop as VLCKit 3.x did. Everything downstream
+        // here publishes to SwiftUI/@Published state that assumes main
+        // thread, so re-enter on main if we weren't called there.
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.mediaPlayerTimeChanged(aNotification)
+            }
+            return
+        }
+
         let player = aNotification.object as! VLCMediaPlayer
         let currentTicks = player.time.intValue
         let playbackInformation = constructPlaybackInformation(player: player, media: player.media!)
@@ -371,6 +384,16 @@ extension UIVLCVideoPlayerView: VLCMediaPlayerDelegate {
     }
 
     public func mediaPlayerStateChanged(_ aNotification: Notification) {
+        // Same background-thread risk as mediaPlayerTimeChanged above —
+        // VLCKit 4.0 can call this delegate method from its own internal
+        // input thread on a state transition, not only from main.
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.mediaPlayerStateChanged(aNotification)
+            }
+            return
+        }
+
         let player = aNotification.object as! VLCMediaPlayer
         guard player.state != .playing, player.state != lastPlayerState else { return }
 
