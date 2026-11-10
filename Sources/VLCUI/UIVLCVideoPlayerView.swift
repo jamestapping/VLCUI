@@ -34,13 +34,12 @@ private final class VLCDrawableContentView: _PlatformView, VLCDrawable, VLCPictu
         }
     }
 
-    // VLCDrawable's `bounds()` is a plain Objective-C method (declared
-    // `- (CGRect)bounds;`, not `@property`), which Swift imports as a
-    // method requirement distinct from UIView's own `bounds` property —
-    // inheriting the property alone does not satisfy it.
-    func bounds() -> CGRect {
-        self.bounds
-    }
+    // VLCDrawable's `bounds()` requirement maps onto the exact same
+    // Objective-C selector (`bounds`) as UIView's own inherited `bounds`
+    // property getter — no explicit implementation needed (and, tried
+    // once, one actively conflicts: "method 'bounds()' ... conflicts with
+    // getter for 'bounds' from superclass 'UIView'"). The inherited
+    // property satisfies this protocol requirement on its own.
 
     func play() {
         owner?.currentMediaPlayer?.play()
