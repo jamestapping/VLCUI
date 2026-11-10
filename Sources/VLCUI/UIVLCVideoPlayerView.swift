@@ -101,7 +101,9 @@ public class UIVLCVideoPlayerView: _PlatformView {
     private let onTicksUpdated: (Int, VLCVideoPlayer.PlaybackInformation) -> Void
     private let onStateUpdated: (VLCVideoPlayer.State, VLCVideoPlayer.PlaybackInformation) -> Void
     private let loggingInfo: (logger: VLCVideoPlayerLogger, level: VLCVideoPlayer.LoggingLevel)?
-    private var currentMediaPlayer: VLCMediaPlayer?
+    // fileprivate, not private: VLCDrawableAdapter (top-level in this same
+    // file, not nested) forwards its playback-control calls to this.
+    fileprivate var currentMediaPlayer: VLCMediaPlayer?
 
     // Note: necessary as the configuration values have to be set
     //       after streams have been added and playback starts for
@@ -196,7 +198,11 @@ public class UIVLCVideoPlayerView: _PlatformView {
         proxy?.pictureInPictureController = nil
         #endif
 
-        let media = VLCMedia(url: newConfiguration.url)
+        // VLCKit 4.0 made this initializer failable (`init?`); force-unwrap
+        // since this function has no way to report failure to its caller
+        // and a well-formed URL has never actually failed to construct a
+        // VLCMedia in practice here.
+        let media = VLCMedia(url: newConfiguration.url)!
         media.addOptions(newConfiguration.options)
 
         let newMediaPlayer = VLCMediaPlayer()
@@ -302,7 +308,9 @@ extension UIVLCVideoPlayerView {
 
         return VLCVideoPlayer.PlaybackInformation(
             startConfiguration: configuration,
-            position: player.position,
+            // VLCKit 4.0 changed `position` from Float to Double;
+            // PlaybackInformation.position stays Float, same as before.
+            position: Float(player.position),
             length: media.length.intValue.asInt,
             isSeekable: player.isSeekable,
             playbackRate: player.rate,
