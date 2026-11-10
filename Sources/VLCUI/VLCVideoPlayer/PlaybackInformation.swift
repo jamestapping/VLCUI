@@ -53,9 +53,16 @@ public extension VLCVideoPlayer {
             lostPictures = stats.lostPictures.asInt
             playedAudioBuffers = stats.playedAudioBuffers.asInt
             lostAudioBuffers = stats.lostAudioBuffers.asInt
-            sentPackets = stats.sentPackets.asInt
-            sentBytes = stats.sentBytes.asInt
-            sendBitrate = stats.sendBitrate
+            // VLCKit 4.0's VLCMediaStats dropped the stream-output (sout)
+            // counters entirely — sentPackets/sentBytes/sendBitrate only
+            // ever meant anything for sout sessions (stream-output /
+            // transcoding), not regular playback. Kept as always-0 fields
+            // here rather than removed, so this isn't a source-breaking
+            // change to VLCUI's own public API for anything reading them
+            // (nothing in playr does — grepped).
+            sentPackets = 0
+            sentBytes = 0
+            sendBitrate = 0
         }
     }
 }

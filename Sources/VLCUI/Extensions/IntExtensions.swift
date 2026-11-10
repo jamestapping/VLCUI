@@ -11,3 +11,13 @@ extension Int32 {
         Int(self)
     }
 }
+
+extension UInt64 {
+
+    // VLCKit 4.0's VLCMediaStats fields are uint64_t, not the int32_t the
+    // old VLCMediaStats used — this keeps PlaybackInformation.Statistics'
+    // own fields as plain Int, same as before.
+    var asInt: Int {
+        Int(self)
+    }
+}
