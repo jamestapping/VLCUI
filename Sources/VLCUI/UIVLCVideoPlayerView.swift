@@ -309,15 +309,28 @@ extension UIVLCVideoPlayerView {
         let videoTracks = [MediaTrack(index: -1, title: "Off")]
             + player.videoTracks.enumerated().map { MediaTrack(index: $0.offset, title: $0.element.trackName) }
 
+        // Subtitles genuinely default to off (PlaybackManager explicitly
+        // forces this), so trusting currentSubtitleTrackIndex == -1 as
+        // "Off" is correct even when VLCKit never marks any text track
+        // isSelected. Audio/video have no such override — VLCKit's own
+        // .auto default plays the first real track without ever marking
+        // it isSelected either, so currentAudioTrackIndex/
+        // currentVideoTrackIndex == -1 there means "nothing explicit was
+        // chosen", not "off". Showing the "Off" row checked in that case
+        // would be wrong — audio is audibly playing — so fall back to the
+        // first real track instead, matching audioTrackIndex(from: .auto)/
+        // subtitleTrackIndex(from: .auto)'s own "first track" semantics.
         let currentSubtitleTrack: MediaTrack = subtitleTracks
             .first(where: { $0.index == player.currentSubtitleTrackIndex })
             .chaining(.init(index: -1, title: "Off"))
-        let currentAudioTrack: MediaTrack = audioTracks
-            .first(where: { $0.index == player.currentAudioTrackIndex })
-            .chaining(.init(index: -1, title: "Off"))
-        let currentVideoTrack: MediaTrack = videoTracks
-            .first(where: { $0.index == player.currentVideoTrackIndex })
-            .chaining(.init(index: -1, title: "Off"))
+        let currentAudioTrack: MediaTrack = currentTrack(
+            in: audioTracks,
+            selectedIndex: player.currentAudioTrackIndex
+        )
+        let currentVideoTrack: MediaTrack = currentTrack(
+            in: videoTracks,
+            selectedIndex: player.currentVideoTrackIndex
+        )
 
         return VLCVideoPlayer.PlaybackInformation(
             startConfiguration: configuration,
@@ -336,6 +349,19 @@ extension UIVLCVideoPlayerView {
             videoTracks: videoTracks,
             statistics: .init(stats: media.statistics)
         )
+    }
+
+    /// For audio/video only (not subtitles, which genuinely default to
+    /// off) — treats `selectedIndex == -1` as "nothing explicit chosen
+    /// yet" rather than "off", since VLCKit's own .auto default plays the
+    /// first real track without ever marking it isSelected. Falls back to
+    /// the first real track so the picker's checkmark matches what's
+    /// actually audible/visible instead of showing "Off" while it plays.
+    private func currentTrack(in tracks: [MediaTrack], selectedIndex: Int) -> MediaTrack {
+        if selectedIndex >= 0, let match = tracks.first(where: { $0.index == selectedIndex }) {
+            return match
+        }
+        return tracks.first(where: { $0.index >= 0 }) ?? MediaTrack(index: -1, title: "Off")
     }
 }
 
