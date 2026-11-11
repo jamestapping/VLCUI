@@ -423,24 +423,48 @@ extension UIVLCVideoPlayerView: VLCMediaPlayerDelegate {
     }
 
     public func mediaPlayerStateChanged(_ aNotification: Notification) {
+        let player = aNotification.object as! VLCMediaPlayer
+        // Capture the state that actually triggered this notification
+        // before any possible thread hop below — not re-read live from
+        // `player` after a DispatchQueue.main.async defers execution.
+        // VLCKit 4.0 can fire this from its own background input thread,
+        // and by the time an async-dispatched block got around to reading
+        // player.state fresh, VLCKit could already have moved on to a
+        // DIFFERENT state (e.g. paused, immediately followed by something
+        // else) — silently applying that later, stale-relative-to-this-
+        // notification state instead of the one this call actually
+        // represents. Confirmed as the cause of the play/pause button's
+        // icon sometimes not flipping after pausing: the deferred block
+        // could read player.state as something other than .paused by the
+        // time it finally ran, and the guard below (now checked against
+        // the captured value) would then silently drop the update instead
+        // of ever reaching onStateUpdated(.paused, ...).
+        let newState = player.state
+        guard newState != .playing, newState != lastPlayerState else { return }
+
         // Same background-thread risk as mediaPlayerTimeChanged above —
         // VLCKit 4.0 can call this delegate method from its own internal
         // input thread on a state transition, not only from main.
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
-                self?.mediaPlayerStateChanged(aNotification)
+                self?.applyStateChanged(newState, for: player)
             }
             return
         }
+        applyStateChanged(newState, for: player)
+    }
 
-        let player = aNotification.object as! VLCMediaPlayer
-        guard player.state != .playing, player.state != lastPlayerState else { return }
+    private func applyStateChanged(_ newState: VLCMediaPlayerState, for player: VLCMediaPlayer) {
+        // Re-checked here (not just in mediaPlayerStateChanged above): by
+        // the time a dispatched block runs, some other path may already
+        // have applied this exact transition to lastPlayerState.
+        guard newState != lastPlayerState else { return }
 
-        let wrappedState = VLCVideoPlayer.State(player.state)
+        let wrappedState = VLCVideoPlayer.State(newState)
         let playbackInformation = constructPlaybackInformation(player: player, media: player.media!)
 
         onStateUpdated(wrappedState, playbackInformation)
-        lastPlayerState = player.state
+        lastPlayerState = newState
 
         #if !os(macOS)
         proxy?.invalidatePictureInPicturePlaybackState()
