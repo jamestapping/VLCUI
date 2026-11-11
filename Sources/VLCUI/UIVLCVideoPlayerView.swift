@@ -292,19 +292,32 @@ extension UIVLCVideoPlayerView {
         // arrays — see VLCMediaPlayerExtensions.swift's comment on
         // subtitleTrackIndex(from:) for the full picture. MediaTrack.index
         // stays a position in these arrays, same convention as before.
-        let subtitleTracks = player.textTracks.enumerated().map { MediaTrack(index: $0.offset, title: $0.element.trackName) }
-        let audioTracks = player.audioTracks.enumerated().map { MediaTrack(index: $0.offset, title: $0.element.trackName) }
-        let videoTracks = player.videoTracks.enumerated().map { MediaTrack(index: $0.offset, title: $0.element.trackName) }
+        //
+        // VLCKit 3.6's index arrays carried a literal -1 "disabled" member,
+        // so an "Off" row came for free wherever the UI listed them.
+        // VLCKit 4.0's track arrays only ever contain real tracks, so that
+        // row has to be synthesized here — prepended, not appended, so it's
+        // always the first/default-looking option regardless of how many
+        // real tracks exist. selectSubtitleTrackIndex(-1)/selectAudioTrackIndex(-1)
+        // already map this same sentinel to deselectAllTextTracks()/
+        // deselectAllAudioTracks() correctly; this was purely a missing
+        // list row, not a broken selector.
+        let subtitleTracks = [MediaTrack(index: -1, title: "Off")]
+            + player.textTracks.enumerated().map { MediaTrack(index: $0.offset, title: $0.element.trackName) }
+        let audioTracks = [MediaTrack(index: -1, title: "Off")]
+            + player.audioTracks.enumerated().map { MediaTrack(index: $0.offset, title: $0.element.trackName) }
+        let videoTracks = [MediaTrack(index: -1, title: "Off")]
+            + player.videoTracks.enumerated().map { MediaTrack(index: $0.offset, title: $0.element.trackName) }
 
         let currentSubtitleTrack: MediaTrack = subtitleTracks
             .first(where: { $0.index == player.currentSubtitleTrackIndex })
-            .chaining(.init(index: -1, title: "Disable"))
+            .chaining(.init(index: -1, title: "Off"))
         let currentAudioTrack: MediaTrack = audioTracks
             .first(where: { $0.index == player.currentAudioTrackIndex })
-            .chaining(.init(index: -1, title: "Disable"))
+            .chaining(.init(index: -1, title: "Off"))
         let currentVideoTrack: MediaTrack = videoTracks
             .first(where: { $0.index == player.currentVideoTrackIndex })
-            .chaining(.init(index: -1, title: "Disable"))
+            .chaining(.init(index: -1, title: "Off"))
 
         return VLCVideoPlayer.PlaybackInformation(
             startConfiguration: configuration,
